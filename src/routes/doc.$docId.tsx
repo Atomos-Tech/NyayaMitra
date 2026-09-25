@@ -94,7 +94,7 @@ function DocumentDetail() {
         text: doc.text,
         goal: customGoal,
       });
-      const analysis = normaliseAnalysis(raw, doc.title);
+      const analysis = normaliseAnalysis(raw, doc.title, doc.text, customGoal);
       saveAnalysis(doc.id, analysis);
       toast.success("Document analyzed successfully!");
     } catch (err) {

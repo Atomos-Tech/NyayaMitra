@@ -94,7 +94,7 @@ function ComparePage() {
 
     try {
       const raw = await streamTextEndpoint("/api/compare", { a, b, goal });
-      const parsed = normaliseComparison(raw);
+      const parsed = normaliseComparison(raw, a, b, goal);
       setComparison(parsed);
       toast.success("Comparison completed!");
     } catch (err) {

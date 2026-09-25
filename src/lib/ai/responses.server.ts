@@ -18,7 +18,12 @@ export function getApiKey(request?: Request): string | null {
   if (headerKey && headerKey.trim()) return headerKey.trim();
   const envGemini = process.env["GEMINI_API_KEY"];
   if (envGemini && envGemini.trim()) return envGemini.trim();
-  const envOpenRouter = process.env["OPENROUTER_API_KEY"];
+  const envOpenRouter =
+    process.env["OPENROUTER_API_KEY"] ||
+    process.env["VITE_OPENROUTER_API_KEY"] ||
+    ((typeof import.meta !== "undefined" &&
+      (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_OPENROUTER_API_KEY) ||
+      "");
   if (envOpenRouter && envOpenRouter.trim()) return envOpenRouter.trim();
   const envOpenAi = process.env["OPENAI_API_KEY"];
   if (envOpenAi && envOpenAi.trim()) return envOpenAi.trim();
@@ -79,13 +84,32 @@ export function createResponsesCall(
     fetch: isExternalStandard ? fetch : runIdFetch.fetch,
   });
 
+  // Vercel AI SDK disallows { role: 'system' } inside the messages array.
+  // Extract system message into the top-level `system` option.
+  const systemMsg = messages.find((m) => m.role === "system");
+  const system =
+    typeof systemMsg?.content === "string"
+      ? systemMsg.content
+      : Array.isArray(systemMsg?.content)
+        ? (systemMsg.content as { text?: string }[]).map((p) => p.text || "").join("\n")
+        : undefined;
+  const nonSystemMessages = messages.filter((m) => m.role !== "system");
+  const finalMessages =
+    nonSystemMessages.length > 0
+      ? nonSystemMessages
+      : [{ role: "user" as const, content: "Please analyze the document." }];
+
   const result = streamText({
     model: isExternalStandard
       ? provider(model || "gemini-2.5-flash")
       : provider.responses(model || CHAT_MODEL),
-    messages,
+    system,
+    messages: finalMessages,
     maxOutputTokens: 3000,
     abortSignal: request.signal,
+    onError: ({ error }) => {
+      console.error("streamText execution error:", error);
+    },
     providerOptions: {
       openai: {
         store: false,
@@ -96,11 +120,16 @@ export function createResponsesCall(
   return {
     result,
     uiResponse: (options?: Parameters<typeof result.toUIMessageStreamResponse>[0]) =>
-      withLovableAiGatewayRunIdHeader(
-        result.toUIMessageStreamResponse({ sendReasoning: true, ...options }),
-        runIdFetch,
-      ),
-    textResponse: () => withLovableAiGatewayRunIdHeader(result.toTextStreamResponse(), runIdFetch),
+      isExternalStandard
+        ? result.toUIMessageStreamResponse({ sendReasoning: true, ...options })
+        : withLovableAiGatewayRunIdHeader(
+            result.toUIMessageStreamResponse({ sendReasoning: true, ...options }),
+            runIdFetch,
+          ),
+    textResponse: () =>
+      isExternalStandard
+        ? result.toTextStreamResponse()
+        : withLovableAiGatewayRunIdHeader(result.toTextStreamResponse(), runIdFetch),
   };
 }
 
